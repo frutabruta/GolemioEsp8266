@@ -301,6 +301,7 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
   display.clear();
   display.drawString(0, 0,"IP address: ");
   display.drawString(0, 10, WiFi.localIP().toString());
+  display.drawString(0, 20," klic: "+String(klic));
   display.display();
 
   delay(2000);
@@ -316,10 +317,10 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
 
   display.clear();
 
-   display.drawString(0, 0," klic: ");
-  display.drawString(0, 10,klic);
-  display.drawString(0, 20," parametry: ");
-  display.drawStringMaxWidth(0, 30, 128,parametryC);
+   
+  
+  display.drawString(0, 0,"parametry: ");
+  display.drawStringMaxWidth(0, 10, 128,parametryC);
 
  
 
