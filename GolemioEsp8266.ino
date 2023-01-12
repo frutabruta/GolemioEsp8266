@@ -43,12 +43,17 @@
 // Search for "Arduino Json" in the Arduino Library manager
 // https://github.com/bblanchon/ArduinoJson
 
-#include "SSD1306Wire.h"  // legacy: #include "SSD1306.h"
 
-/*
-knihovna pro displej
-https://github.com/ThingPulse/esp8266-oled-ssd1306
-*/
+
+//uprava knihovny: https://forum.hwkitchen.cz/viewtopic.php?t=2503
+//Adafruit GFX:
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // -------------------------------------
 // -------   Other Config   ------
@@ -77,7 +82,7 @@ const int vyska32 = 0;
 char klic[350]="XXX"; //golemio api klic
 
 //SSD1306Wire display(0x3c, D3, D4, GEOMETRY_128_32); //12832
-SSD1306Wire display(0x3c, D3, D4);  //12864
+
 
 
 
@@ -192,25 +197,35 @@ void configModeCallback(WiFiManager *myWiFiManager)
   Serial.print("Config IP Address: ");
   Serial.println(WiFi.softAPIP());
 
-  display.drawString(0, 0,"Config SSID: ");
-  display.drawString(0, 10,myWiFiManager->getConfigPortalSSID());
-  display.drawString(0, 20,"Config IP Address: ");
-  display.drawString(0, 30,WiFi.softAPIP().toString());
-   display.drawString(0, 40,"Password: ");
-  display.drawString(0, 50,password);
+  drawStringFromLeft(0, 0,"Config SSID: ");
+  drawStringFromLeft(0, 10,myWiFiManager->getConfigPortalSSID());
+  drawStringFromLeft(0, 20,"Config IP Address: ");
+ drawStringFromLeft(0, 30,WiFi.softAPIP().toString());
+   drawStringFromLeft(0, 40,"Password: ");
+  drawStringFromLeft(0, 50,password);
   display.display();
 
 }
 
 void setup()
 {
- display.init();
-  display.clear();
+  Wire.begin(D3,D4);
+   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+  
+
+  display.clearDisplay();
+   display.setTextSize(1);      // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE); // Draw white text
+  display.cp437(true);
   
   Serial.begin(115200);
   Serial.println("displej bezi na SCL:" + String(SCL) + " SDA:" + String(SDA)); 
-  display.flipScreenVertically();
-  display.setFont(DejaVu_Sans_10);
+ // display.flipScreenVertically();
+ // display.setFont(DejaVu_Sans_10);
 
   bool forceConfig = false;
 
@@ -283,7 +298,7 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
 
   Serial.println("connected...yeey :)");
 
-  display.clear();
+  display.clearDisplay();
 
     
 
@@ -298,10 +313,10 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
   Serial.println("");
   Serial.println("WiFi connected");
 
-  display.clear();
-  display.drawString(0, 0,"IP address: ");
-  display.drawString(0, 10, WiFi.localIP().toString());
-  display.drawString(0, 20," klic: "+String(klic));
+  display.clearDisplay();
+  drawStringFromLeft(0, 0,"IP address: ");
+  drawStringFromLeft(0, 10, WiFi.localIP().toString());
+  drawStringFromLeft(0, 20," klic: "+String(klic));
   display.display();
 
   delay(2000);
@@ -315,12 +330,12 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
   strncpy(klic, custom_text_box.getValue(), sizeof(klic));
   strncpy(parametryC, custom_text_box2.getValue(), sizeof(parametryC));
 
-  display.clear();
+  display.clearDisplay();
 
    
   
-  display.drawString(0, 0,"parametry: ");
-  display.drawStringMaxWidth(0, 10, 128,parametryC);
+  drawStringFromLeft(0, 0,"parametry: ");
+  drawStringFromLeft(0, 10,parametryC);
 
  
 
@@ -378,8 +393,8 @@ void stahni() {
         return;
       }
 
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.clearDisplay();
+     // display.setTextAlignment(TEXT_ALIGN_LEFT);
       int maxPocetOdjezdu = 5;
       int cisloRadkuInfo = 5;
       if (vyska32 == 1) {
@@ -418,7 +433,7 @@ void stahni() {
       char buffer[80];
 
       //strftime(buffer, 80, "%Y%m%d",timeinfo);
-      strftime(buffer, 80, "%d.%m.%Y  %R", timeinfo);      
+      strftime(buffer, 80, "%d.%m.%g %R", timeinfo);      
 
       casPrikaz = buffer;
       strftime(buffer, 80, "%u", timeinfo);
@@ -426,7 +441,7 @@ void stahni() {
 
       ////////konec casu
 
-      vykresliSpodniRadekDatum(casPrikaz, nahradOled(cisloDoDne(den.toInt())), cisloRadkuInfo);
+      vykresliSpodniRadekDatum(casPrikaz, nahradISO8859(cisloDoDne(den.toInt())), cisloRadkuInfo);
       display.display();
 
     }
@@ -449,7 +464,7 @@ String nahradOled(String vstup) {
   //pro pouziti s knihovnou https://github.com/ThingPulse/esp8266-oled-ssd1306
   //vstup = vstup.substring(0, delkaCile);
 
-
+  String vystup=vstup;
   //vstup.replace("á", "a");
   // vstup.replace("Á", "A");
   vstup.replace("č", "c");
@@ -485,7 +500,7 @@ String nahradOled(String vstup) {
 
   //vstup.replace("", "");
 
-  return vstup;
+  return vystup;
 }
 
 
@@ -495,10 +510,12 @@ String zkratText(String vstup, int maxSirka) {
   int novaDelka = puvodniDelka;
 
   Serial.println("zacinam zmensovat puvodniDelka:" + String(puvodniDelka) + " maxSirka:" + String(maxSirka));
+  /*
   while (display.getStringWidth(vystup) > abs(maxSirka)) {
     novaDelka--;
     vystup = vystup.substring(0, novaDelka);
   }
+  */
 
   return vystup;
 }
@@ -517,21 +534,65 @@ String cisloDoDne(int vstup) {
   return vystup;
 }
 
+void drawStringFromLeft(int sloupec, int radek, String obsah)
+{
+  display.setCursor(sloupec,radek);
+  display.println(obsah);
+}
+
+String nahradISO8859(String vstup)
+{
+  vstup.replace("á", "\xE1"); //c hacek
+  vstup.replace("Á", "\xC1"); //C hacek
+  vstup.replace("č", "\xE8"); //c hacek
+  vstup.replace("Č", "\xC8"); //C hacek
+  vstup.replace("ď", "\xEF"); //d hacek
+  vstup.replace("Ď", "\xCF"); //D hacek
+
+  vstup.replace("é", "\xE9"); //
+
+   vstup.replace("É", "\xC9");
+  vstup.replace("ě", "\xEC"); //e hacek
+  vstup.replace("Ě", "\xCC");
+    vstup.replace("í", "\xED"); //dlouhe i
+    vstup.replace("Í", "\xCD"); //dlouhe I
+  vstup.replace("ň", "\xF2");
+  vstup.replace("Ň", "\xD2");
+   vstup.replace("ó", "\xF3");
+  vstup.replace("Ó", "\xD3");
+  vstup.replace("ř", "\xF8");
+  vstup.replace("Ř", "\xD8");
+  vstup.replace("š", "\xB9");
+  vstup.replace("Š", "\xA9");
+  vstup.replace("ť", "\xBB");
+  vstup.replace("Ť", "\xAB");
+  vstup.replace("ú", "\xFA");
+   vstup.replace("Ú", "\xDA");
+  vstup.replace("ů", "\xF9");
+  vstup.replace("Ů", "\xD9");
+  vstup.replace("ý", "\xFD");
+  vstup.replace("Ý", "\xDD");
+  vstup.replace("ž", "\xBE");
+  vstup.replace("Ž", "\xAE");
+
+return vstup;
+}
 void vykresliRadekOdjezdu(String linka, String cil, String cas, int radek) {
   int sloupecCile = 20;
   int vyskaRadku = 10;
   int sloupecCasu = 128;
   int pravyOkrajCile = 100;
   int maxSirkaTextu = sloupecCile - pravyOkrajCile;
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, radek * vyskaRadku, linka);
+  //display.setTextAlignment(TEXT_ALIGN_LEFT);
+  drawStringFromLeft(0, radek * vyskaRadku, linka);
 
 
-  //display.drawString(sloupecCile, radek * vyskaRadku, zkratText(cil, maxSirkaTextu));
-  display.drawString(sloupecCile, radek * vyskaRadku, nahradOled(cil));
+  //display.drawStringFromLeft(sloupecCile, radek * vyskaRadku, zkratText(cil, maxSirkaTextu));
+  drawStringFromLeft(sloupecCile, radek * vyskaRadku, nahradISO8859(cil));
 
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(sloupecCasu, radek * vyskaRadku, cas);
+  //display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  drawStringFromRight( sloupecCasu, radek * vyskaRadku, cas);
+ // drawStringFromLeft(sloupecCasu, radek * vyskaRadku, cas);
 }
 
 
@@ -549,16 +610,15 @@ void vykresliSpodniRadek(String cas, int aktStranka, int pocetStranek, int radek
     y0 = 32 - vyskaRadku - posun + 1;
   }
 
-  display.drawLine(0, y0, sloupecCas, y0);
+  display.drawLine(0, y0, sloupecCas, y0,SSD1306_WHITE);
 
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, radek * vyskaRadku + posun, String(aktStranka) + "/" + String(pocetStranek));
+ // display.setTextAlignment(TEXT_ALIGN_LEFT);
+ drawStringFromLeft(0, radek * vyskaRadku + posun, String(aktStranka) + "/" + String(pocetStranek));
 
 
-  //display.drawString(sloupecCile, counter*vyskaRadku, zkratText(cil,maxSirkaTextu));
-
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(sloupecCas, radek * vyskaRadku + posun, cas);
+ 
+ // display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas);
 }
 
 void vykresliSpodniRadekDatum(String cas, String den, int radek) {
@@ -578,16 +638,33 @@ void vykresliSpodniRadekDatum(String cas, String den, int radek) {
     y0 = 32 - vyskaRadku - posun + 1;
   }
 
-  display.drawLine(0, y0, sloupecCas, y0);
+  display.drawLine(0, y0, sloupecCas, y0,SSD1306_WHITE);
 
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, radek * vyskaRadku + posun, den);
+  //display.setTextAlignment(TEXT_ALIGN_LEFT);
+  drawStringFromLeft(0, radek * vyskaRadku + posun, den);
 
 
-  //display.drawString(sloupecCile, counter*vyskaRadku, zkratText(cil,maxSirkaTextu));
+  
+  //display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas);
+}
 
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(sloupecCas, radek * vyskaRadku + posun, cas);
+void drawCentreString(String buf, int x, int y)
+{
+    int16_t x1, y1;
+    uint16_t w, h;
+    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h); //calc width of new string
+    display.setCursor(x - w / 2, y);
+    display.print(buf);
+}
+
+void drawStringFromRight( int x, int y, String buf)
+{
+    int16_t x1, y1;
+    uint16_t w, h;
+    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h); //calc width of new string
+    display.setCursor(x - w , y);
+    display.print(buf);
 }
 
 
