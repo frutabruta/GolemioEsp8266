@@ -2,9 +2,20 @@
 #include <FS.h>
 #include <WiFiManager.h>
 
+#include <Arduino.h>
+
 
 #ifdef ESP32
-  #include <SPIFFS.h>
+#include <SPIFFS.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#define D4 21
+#define D3 22
+#endif
+
+#ifdef ESP8266
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 #endif
 
 
@@ -18,8 +29,7 @@
 // ESP32 #include <SPIFFS.h>
 
 
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
+
 
 
 // ----------------------------
@@ -33,26 +43,38 @@
 // https://github.com/tzapu/WiFiManager
 
 #include <ESP_DoubleResetDetector.h>
+#ifdef ESP8266
+#define ESP8266_DRD_USE_RTC     false   //true
+#define ESP_DRD_USE_LITTLEFS    true    //false
+#endif
+
+#define ESP_DRD_USE_EEPROM      true
+#define ESP_DRD_USE_SPIFFS      false
+
 // A library for checking if the reset button has been pressed twice
 // Can be used to enable config mode
 // Can be installed from the library manager (Search for "ESP_DoubleResetDetector")
 //https://github.com/khoih-prog/ESP_DoubleResetDetector
 
-#
+
 // ArduinoJson is used for parsing and creating the config file.
 // Search for "Arduino Json" in the Arduino Library manager
 // https://github.com/bblanchon/ArduinoJson
 
 
+#include <LiquidCrystal_I2C.h>  // by Frank de Brabander, 1.1.2
+LiquidCrystal_I2C lcd(0x3F, 20, 4);
+
+int pocitacVterin = 30;
 
 //uprava knihovny: https://forum.hwkitchen.cz/viewtopic.php?t=2503
 //Adafruit GFX:
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+#define SCREEN_WIDTH 128     // OLED display width, in pixels
+#define SCREEN_HEIGHT 64     // OLED display height, in pixels
+#define OLED_RESET -1        // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C  ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // -------------------------------------
@@ -64,22 +86,23 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Number of seconds after reset during which a
 // subseqent reset will be considered a double reset.
-#define DRD_TIMEOUT 5 
+#define DRD_TIMEOUT 5
 // RTC Memory Address for the DoubleResetDetector to use
 #define DRD_ADDRESS 0
+#define DOUBLERESETDETECTOR_DEBUG       true
 
 // -----------------------------
 
 // -----------------------------
 
-DoubleResetDetector *drd;
+DoubleResetDetector* drd;
 
 //flag for saving data
-bool shouldSaveConfig = false;
+bool shouldSaveConfig = true;
 
 const int vyska32 = 0;
 
-char klic[350]="XXX"; //golemio api klic
+char klic[350] = "XXX";  //golemio api klic
 
 //SSD1306Wire display(0x3c, D3, D4, GEOMETRY_128_32); //12832
 
@@ -87,7 +110,7 @@ char klic[350]="XXX"; //golemio api klic
 
 
 
-//LiquidCrystal_I2C lcd(0x3F,20,4);
+
 
 const char* ssid = "GolemioDisplay";
 const char* password = "password";
@@ -97,37 +120,33 @@ int sloupecCil = 4;
 int sloupecCas = 15;
 int delkaCile = 30;
 int delkaLinky = 3;
-String idZastavky = "58791"; //58762 balabenka
+String idZastavky = "58791";  //58762 balabenka
 String parametry = "";
-char parametryC[200]="?cisIds=58791&minutesBefore=1&minutesAfter=30&limit=5&mode=departures&filter=routeHeadingOnce&includeMetroTrains=true&order=real";
+char parametryC[200] = "?cisIds=58791&minutesBefore=1&minutesAfter=30&limit=5&mode=departures&filter=routeHeadingOnce&includeMetroTrains=true&order=real";
 
 String retezec = "";
 
 
-void saveConfigFile()
-{
+void saveConfigFile() {
   Serial.println(F("Saving config"));
   StaticJsonDocument<512> json;
   json["klic"] = klic;
   json["parametryC"] = parametryC;
- 
+
 
   File configFile = SPIFFS.open(JSON_CONFIG_FILE, "w");
-  if (!configFile)
-  {
+  if (!configFile) {
     Serial.println("failed to open config file for writing");
   }
 
   serializeJsonPretty(json, Serial);
-  if (serializeJson(json, configFile) == 0)
-  {
+  if (serializeJson(json, configFile) == 0) {
     Serial.println(F("Failed to write to file"));
   }
   configFile.close();
 }
 
-bool loadConfigFile()
-{
+bool loadConfigFile() {
   //clean FS, for testing
   // SPIFFS.format();
 
@@ -139,39 +158,32 @@ bool loadConfigFile()
   // it will only get called if it fails to mount, which probably means it needs to be
   // formatted, but maybe dont use this if you have something important saved on spiffs
   // that can't be replaced.
-  if (SPIFFS.begin())
-  {
+  if (SPIFFS.begin(true)) {
     Serial.println("mounted file system");
-    if (SPIFFS.exists(JSON_CONFIG_FILE))
-    {
+    if (SPIFFS.exists(JSON_CONFIG_FILE)) {
       //file exists, reading and loading
       Serial.println("reading config file");
       File configFile = SPIFFS.open(JSON_CONFIG_FILE, "r");
-      if (configFile)
-      {
+      if (configFile) {
         Serial.println("opened config file");
         StaticJsonDocument<512> json;
+        //StaticJsonDocument<512> json;
         DeserializationError error = deserializeJson(json, configFile);
         serializeJsonPretty(json, Serial);
-        if (!error)
-        {
+        if (!error) {
           Serial.println("\nparsed json");
 
           strcpy(parametryC, json["parametryC"]);
           strcpy(klic, json["klic"]);
-          
+
 
           return true;
-        }
-        else
-        {
+        } else {
           Serial.println("failed to load json config");
         }
       }
     }
-  }
-  else
-  {
+  } else {
     Serial.println("failed to mount FS");
   }
   //end read
@@ -179,16 +191,14 @@ bool loadConfigFile()
 }
 
 //callback notifying us of the need to save config
-void saveConfigCallback()
-{
+void saveConfigCallback() {
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
 
 // This gets called when the config mode is launced, might
 // be useful to update a display with this info.
-void configModeCallback(WiFiManager *myWiFiManager)
-{
+void configModeCallback(WiFiManager* myWiFiManager) {
   Serial.println("Entered Conf Mode");
 
   Serial.print("Config SSID: ");
@@ -197,54 +207,65 @@ void configModeCallback(WiFiManager *myWiFiManager)
   Serial.print("Config IP Address: ");
   Serial.println(WiFi.softAPIP());
 
-  drawStringFromLeft(0, 0,"Config SSID: ");
-  drawStringFromLeft(0, 10,myWiFiManager->getConfigPortalSSID());
-  drawStringFromLeft(0, 20,"Config IP Address: ");
- drawStringFromLeft(0, 30,WiFi.softAPIP().toString());
-   drawStringFromLeft(0, 40,"Password: ");
-  drawStringFromLeft(0, 50,password);
+  drawStringFromLeft(0, 0, "Config SSID: ");
+  drawStringFromLeft(0, 10, myWiFiManager->getConfigPortalSSID());
+  drawStringFromLeft(0, 20, "Config IP Address: ");
+  drawStringFromLeft(0, 30, WiFi.softAPIP().toString());
+  drawStringFromLeft(0, 40, "Password: ");
+  drawStringFromLeft(0, 50, password);
   display.display();
-
 }
 
-void setup()
-{
-  Wire.begin(D3,D4);
-   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
-  }
+void setup() {
   
-
-  display.clearDisplay();
-   display.setTextSize(1);      // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE); // Draw white text
-  display.cp437(true);
-  
-  Serial.begin(115200);
-  Serial.println("displej bezi na SCL:" + String(SCL) + " SDA:" + String(SDA)); 
- // display.flipScreenVertically();
- // display.setFont(DejaVu_Sans_10);
-
-  bool forceConfig = false;
+    bool forceConfig = false;
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
 
   drd = new DoubleResetDetector(DRD_TIMEOUT, DRD_ADDRESS);
-  if (drd->detectDoubleReset())
-  {
+  if (drd->detectDoubleReset()) {
     Serial.println(F("Forcing config mode as there was a Double reset detected"));
     forceConfig = true;
   }
 
+    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+  /*  for (;;)
+      ;  // Don't proceed, loop forever */
+  }
+
+Wire.begin(D3, D4);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting");
+
+
+
+
+
+  display.clearDisplay();
+  display.setTextSize(1);               // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE);  // Draw white text
+  display.cp437(true);
+
+  Serial.begin(115200);
+  Serial.println("displej bezi na SCL:" + String(SCL) + " SDA:" + String(SDA));
+  // display.flipScreenVertically();
+  // display.setFont(DejaVu_Sans_10);
+
+
+
+  
+
   bool spiffsSetup = loadConfigFile();
-  if (!spiffsSetup)
-  {
+  if (!spiffsSetup) {
     Serial.println(F("Forcing config mode as there is no saved config"));
     forceConfig = true;
   }
 
   //WiFi.disconnect();
-  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+  WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
   Serial.begin(115200);
   delay(10);
 
@@ -261,33 +282,28 @@ void setup()
   //--- additional Configs params ---
 
   // Text box (String)
- WiFiManagerParameter custom_text_box("api_key", "Golemio Klíč", klic, 350); // 50 == max length
-WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametryC, 200); // 50 == max length
+  WiFiManagerParameter custom_text_box("api_key", "Golemio Klíč", klic, 350);               // 50 == max length
+  WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametryC, 200);  // 50 == max length
 
 
   //add all your parameters here
   wm.addParameter(&custom_text_box);
   wm.addParameter(&custom_text_box2);
-  
+
 
   Serial.println("hello");
 
-  
-  if (forceConfig)
-  {
-    if (!wm.startConfigPortal(ssid, password))
-    {
+
+  if (forceConfig) {
+    if (!wm.startConfigPortal(ssid, password)) {
       Serial.println("failed to connect and hit timeout");
       delay(3000);
       //reset and try again, or maybe put it to deep sleep
       ESP.restart();
       delay(5000);
     }
-  }
-  else
-  {
-    if (!wm.autoConnect(ssid, password))
-    {
+  } else {
+    if (!wm.autoConnect(ssid, password)) {
       Serial.println("failed to connect and hit timeout");
       delay(3000);
       // if we still have not connected restart and try all over again
@@ -300,23 +316,23 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
 
   display.clearDisplay();
 
-    
 
-   // display.drawStringMaxWidth(0, 0, 128, retezec);
-   
 
+  // display.drawStringMaxWidth(0, 0, 128, retezec);
 
 
 
-  
+
+
+
 
   Serial.println("");
   Serial.println("WiFi connected");
 
   display.clearDisplay();
-  drawStringFromLeft(0, 0,"IP address: ");
+  drawStringFromLeft(0, 0, "IP address: ");
   drawStringFromLeft(0, 10, WiFi.localIP().toString());
-  drawStringFromLeft(0, 20," klic: "+String(klic));
+  drawStringFromLeft(0, 20, " klic: " + String(klic));
   display.display();
 
   delay(2000);
@@ -332,27 +348,26 @@ WiFiManagerParameter custom_text_box2("parametry", "parametry dotazu", parametry
 
   display.clearDisplay();
 
-   
-  
-  drawStringFromLeft(0, 0,"parametry: ");
-  drawStringFromLeft(0, 10,parametryC);
 
- 
 
-display.display();
+  drawStringFromLeft(0, 0, "parametry: ");
+  drawStringFromLeft(0, 10, parametryC);
 
- 
+
+
+  display.display();
+
+
 
 
 
   //save the custom parameters to FS
-  if (shouldSaveConfig)
-  {
+  if (shouldSaveConfig) {
     saveConfigFile();
   }
 
-configTime(1 * 3600, 1, "pool.ntp.org", "time.nist.gov");
-delay(3000);
+  configTime(1 * 3600, 1 * 3600, "pool.ntp.org", "time.nist.gov");
+  delay(3000);
 }
 
 void stahni() {
@@ -365,8 +380,9 @@ void stahni() {
     //celaAdresa += "?cisIds=" + idZastavky;
 
     celaAdresa += parametryC;
-    //http.begin("http://www.mpvnet.cz/PID/x/62887?pocet=15&pz=true&t=true");  //Specify request destination
+    http.useHTTP10(true);
     http.begin(client, celaAdresa);
+    
     http.addHeader("X-Access-Token", klic);
 
 
@@ -375,16 +391,15 @@ void stahni() {
     if (httpCode > 0) {  //Check the returning code
 
       Serial.println("kod: " + String(httpCode));
-      String payload = http.getString();  //Get the request response payload
-      Serial.println(payload);            //Print the response payload
+    //char[] payload = http.getStream() ;  //Get the request response payload
+     // Serial.println(payload);            //Print the response payload
 
       const size_t capacity = JSON_OBJECT_SIZE(3) + JSON_ARRAY_SIZE(2) + 60;
+      Serial.println(String(capacity));  
+      //DynamicJsonDocument root(9000);
       DynamicJsonDocument root(9000);
 
-
-
-
-      DeserializationError error = deserializeJson(root, payload);
+      DeserializationError error = deserializeJson(root, http.getStream());
 
       // Test if parsing succeeds.
       if (error) {
@@ -394,11 +409,13 @@ void stahni() {
       }
 
       display.clearDisplay();
-     // display.setTextAlignment(TEXT_ALIGN_LEFT);
-      int maxPocetOdjezdu = 5;
+      lcd.clear();
+      // display.setTextAlignment(TEXT_ALIGN_LEFT);
+      int maxPocetOdjezduOled = 5;
+      int maxPocetOdjezduLcd = 7;
       int cisloRadkuInfo = 5;
       if (vyska32 == 1) {
-        maxPocetOdjezdu = 2;
+        maxPocetOdjezduOled = 2;
         cisloRadkuInfo = 2;
       }
 
@@ -409,19 +426,31 @@ void stahni() {
 
       int counter = 0;
 
-      for (int i = 0; ((i < arraySize) && (i < maxPocetOdjezdu)); i++) {
+      for (int i = 0; (i < arraySize); i++) {
 
-        String cas = root["departures"][i]["departure_timestamp"]["minutes"].as<char*>();
-        String linka = root["departures"][i]["route"]["short_name"].as<char*>();
-        String cil = root["departures"][i]["trip"]["headsign"].as<char*>();
+        String cas = root["departures"][i]["departure_timestamp"]["minutes"].as<const char*>();
+        String linka = root["departures"][i]["route"]["short_name"].as<const char*>();
+        String cil = root["departures"][i]["trip"]["headsign"].as<const char*>();
         Serial.println(linka + " " + cil + " " + cas);
 
-        vykresliRadekOdjezdu(linka, cil, cas, counter);
-        counter++;
+        if ((linka == "133") || (linka == "908") || (linka == "909"))  //vyresit lepe!
+        {
+          if (counter < maxPocetOdjezduOled) {
+            vykresliRadekOdjezduOled(linka, cil, cas, counter);
+          }
+          if (counter < maxPocetOdjezduLcd) {
+            vykresliRadekOdjezduLcd(linka, cil, cas, counter);
+          }
+
+          counter++;
+        }
       }
 
+
+
+
       String casPrikaz = "0:48";
-      String den="";
+      String den = "";
 
       //////// cas
 
@@ -430,41 +459,66 @@ void stahni() {
       time(&rawtime);
 
       timeinfo = localtime(&rawtime);
+
       char buffer[80];
 
+
       //strftime(buffer, 80, "%Y%m%d",timeinfo);
-      strftime(buffer, 80, "%d.%m.%g %R", timeinfo);      
+      strftime(buffer, 80, "%d.%m.%g %R", timeinfo);
+
+
 
       casPrikaz = buffer;
       strftime(buffer, 80, "%u", timeinfo);
       den = buffer;
-
+      vykresliCas();
       ////////konec casu
 
       vykresliSpodniRadekDatum(casPrikaz, nahradISO8859(cisloDoDne(den.toInt())), cisloRadkuInfo);
-      display.display();
 
+      //display.startscrollleft(6,7);
+      display.display();
     }
 
     http.end();  //Close connection
   }
 
-  delay(30000);  //Send a request every 30 seconds
+  //delay(30000);  //Send a request every 30 seconds
 }
 
-void loop()
-{
+void loop() {
   drd->loop();
-  stahni();
+
+
+  vykresliCas();
+  if (pocitacVterin == 30) {
+    stahni();
+    pocitacVterin = 0;
+  }
+  pocitacVterin++;
+  delay(1000);
 }
 
 
+void vykresliCas() {
+  time_t rawtime;
+  struct tm* timeinfo;
+  time(&rawtime);
 
-String nahradOled(String vstup) {
+  timeinfo = localtime(&rawtime);
+  char bufferCas[20];
+  strftime(bufferCas, 20, "%T", timeinfo);
+
+  lcd.setCursor(12, 3);
+  String jenCas = bufferCas;
+  lcd.print(jenCas);
+}
+/*
+String nahradOled(String &vstup) {
   //pro pouziti s knihovnou https://github.com/ThingPulse/esp8266-oled-ssd1306
   //vstup = vstup.substring(0, delkaCile);
 
-  String vystup=vstup;
+  String vystup = vstup;
   //vstup.replace("á", "a");
   // vstup.replace("Á", "A");
   vstup.replace("č", "c");
@@ -502,6 +556,7 @@ String nahradOled(String vstup) {
 
   return vystup;
 }
+*/
 
 
 String zkratText(String vstup, int maxSirka) {
@@ -522,43 +577,40 @@ String zkratText(String vstup, int maxSirka) {
 
 String cisloDoDne(int vstup) {
   String vystup = "";
-  String poleDnu[]={"","Pondělí","Úterý","Středa","Čtvrtek","Pátek","Sobota","Neděle"};
-  
-  if((vstup<0)||(vstup>7))
-  {
+  String poleDnu[] = { "", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle" };
+
+  if ((vstup < 0) || (vstup > 7)) {
     return "";
-  }  
-  
-  vystup=poleDnu[vstup];
-  
+  }
+
+  vystup = poleDnu[vstup];
+
   return vystup;
 }
 
-void drawStringFromLeft(int sloupec, int radek, String obsah)
-{
-  display.setCursor(sloupec,radek);
+void drawStringFromLeft(int sloupec, int radek, String obsah) {
+  display.setCursor(sloupec, radek);
   display.println(obsah);
 }
 
-String nahradISO8859(String vstup)
-{
-  vstup.replace("á", "\xE1"); //c hacek
-  vstup.replace("Á", "\xC1"); //C hacek
-  vstup.replace("č", "\xE8"); //c hacek
-  vstup.replace("Č", "\xC8"); //C hacek
-  vstup.replace("ď", "\xEF"); //d hacek
-  vstup.replace("Ď", "\xCF"); //D hacek
+String nahradISO8859(String vstup) {
+  vstup.replace("á", "\xE1");  //c hacek
+  vstup.replace("Á", "\xC1");  //C hacek
+  vstup.replace("č", "\xE8");  //c hacek
+  vstup.replace("Č", "\xC8");  //C hacek
+  vstup.replace("ď", "\xEF");  //d hacek
+  vstup.replace("Ď", "\xCF");  //D hacek
 
-  vstup.replace("é", "\xE9"); //
+  vstup.replace("é", "\xE9");  //
 
-   vstup.replace("É", "\xC9");
-  vstup.replace("ě", "\xEC"); //e hacek
+  vstup.replace("É", "\xC9");
+  vstup.replace("ě", "\xEC");  //e hacek
   vstup.replace("Ě", "\xCC");
-    vstup.replace("í", "\xED"); //dlouhe i
-    vstup.replace("Í", "\xCD"); //dlouhe I
+  vstup.replace("í", "\xED");  //dlouhe i
+  vstup.replace("Í", "\xCD");  //dlouhe I
   vstup.replace("ň", "\xF2");
   vstup.replace("Ň", "\xD2");
-   vstup.replace("ó", "\xF3");
+  vstup.replace("ó", "\xF3");
   vstup.replace("Ó", "\xD3");
   vstup.replace("ř", "\xF8");
   vstup.replace("Ř", "\xD8");
@@ -567,7 +619,7 @@ String nahradISO8859(String vstup)
   vstup.replace("ť", "\xBB");
   vstup.replace("Ť", "\xAB");
   vstup.replace("ú", "\xFA");
-   vstup.replace("Ú", "\xDA");
+  vstup.replace("Ú", "\xDA");
   vstup.replace("ů", "\xF9");
   vstup.replace("Ů", "\xD9");
   vstup.replace("ý", "\xFD");
@@ -575,28 +627,43 @@ String nahradISO8859(String vstup)
   vstup.replace("ž", "\xBE");
   vstup.replace("Ž", "\xAE");
 
-return vstup;
+  return vstup;
 }
-void vykresliRadekOdjezdu(String linka, String cil, String cas, int radek) {
+
+String doplnNaTriCislice(String vstup) {
+  while (vstup.length() < 3) {
+    vstup = " " + vstup;
+  }
+  return vstup;
+}
+void vykresliRadekOdjezduOled(String &linka, String &cil, String &cas, int radek) {
   int sloupecCile = 20;
   int vyskaRadku = 10;
   int sloupecCasu = 128;
   int pravyOkrajCile = 100;
   int maxSirkaTextu = sloupecCile - pravyOkrajCile;
-  //display.setTextAlignment(TEXT_ALIGN_LEFT);
+
   drawStringFromLeft(0, radek * vyskaRadku, linka);
+  drawStringFromLeft(sloupecCile, radek * vyskaRadku, nahradISO8859(cil).substring(0, 17));
+  drawStringFromRight(sloupecCasu, radek * vyskaRadku, cas, true);
+}
 
+void vykresliRadekOdjezduLcd(String &linka, String &cil, String &cas, int radek) {
 
-  //display.drawStringFromLeft(sloupecCile, radek * vyskaRadku, zkratText(cil, maxSirkaTextu));
-  drawStringFromLeft(sloupecCile, radek * vyskaRadku, nahradISO8859(cil));
+  //display.setTextAlignment(TEXT_ALIGN_LEFT);
+  if (radek < 10) {
+    if (radek < 4) {
+      lcd.setCursor(0, radek);
 
-  //display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  drawStringFromRight( sloupecCasu, radek * vyskaRadku, cas);
- // drawStringFromLeft(sloupecCasu, radek * vyskaRadku, cas);
+    } else {
+      lcd.setCursor(11, radek - 4);
+    }
+    lcd.print(doplnNaTriCislice(linka) + "  " + doplnNaTriCislice(cas) + "m");
+  }
 }
 
 
-void vykresliSpodniRadek(String cas, int aktStranka, int pocetStranek, int radek) {
+void vykresliSpodniRadek(String &cas, int aktStranka, int pocetStranek, int radek) {
 
   int vyskaRadku = 10;
   int sloupecCas = 128;
@@ -604,24 +671,24 @@ void vykresliSpodniRadek(String cas, int aktStranka, int pocetStranek, int radek
   int posunNc = 0;
   int posun = 3;
 
-  int y0 = 64 - vyskaRadku - posun + 1;
+  int y0 = 64 - vyskaRadku - posun;
   if (vyska32 == 1) {
     posun = 1;
     y0 = 32 - vyskaRadku - posun + 1;
   }
 
-  display.drawLine(0, y0, sloupecCas, y0,SSD1306_WHITE);
+  display.drawLine(0, y0, sloupecCas, y0, SSD1306_WHITE);
 
- // display.setTextAlignment(TEXT_ALIGN_LEFT);
- drawStringFromLeft(0, radek * vyskaRadku + posun, String(aktStranka) + "/" + String(pocetStranek));
+  // display.setTextAlignment(TEXT_ALIGN_LEFT);
+  drawStringFromLeft(0, radek * vyskaRadku + posun, String(aktStranka) + "/" + String(pocetStranek));
 
 
- 
- // display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas);
+
+  // display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas, false);
 }
 
-void vykresliSpodniRadekDatum(String cas, String den, int radek) {
+void vykresliSpodniRadekDatum(String &cas, String den, int radek) {
 
   int vyskaRadku = 10;
   int sloupecCas = 128;
@@ -632,39 +699,42 @@ void vykresliSpodniRadekDatum(String cas, String den, int radek) {
 
 
 
-  int y0 = 64 - vyskaRadku - posun + 1;
+  int y0 = 64 - vyskaRadku - posun;
   if (vyska32 == 1) {
     posun = 1;
     y0 = 32 - vyskaRadku - posun + 1;
   }
 
-  display.drawLine(0, y0, sloupecCas, y0,SSD1306_WHITE);
+  display.drawLine(0, y0, sloupecCas, y0, SSD1306_WHITE);
 
   //display.setTextAlignment(TEXT_ALIGN_LEFT);
   drawStringFromLeft(0, radek * vyskaRadku + posun, den);
 
 
-  
+
   //display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas);
+  drawStringFromRight(sloupecCas, radek * vyskaRadku + posun, cas, false);
 }
 
-void drawCentreString(String buf, int x, int y)
-{
-    int16_t x1, y1;
-    uint16_t w, h;
-    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h); //calc width of new string
-    display.setCursor(x - w / 2, y);
-    display.print(buf);
+void drawCentreString(String &buf, int x, int y) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(buf, x, y, &x1, &y1, &w, &h);  //calc width of new string
+  display.setCursor(x - w / 2, y);
+  display.print(buf);
 }
 
-void drawStringFromRight( int x, int y, String buf)
-{
-    int16_t x1, y1;
-    uint16_t w, h;
-    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h); //calc width of new string
-    display.setCursor(x - w , y);
-    display.print(buf);
+void drawStringFromRight(int x, int y, String &buf, bool fill) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  if (fill) {
+    buf = " " + buf;
+    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h);  //calc width of new string
+    display.fillRect(x - w, y, w, h, SSD1306_BLACK);
+  } else {
+    display.getTextBounds(buf, x, y, &x1, &y1, &w, &h);  //calc width of new string
+  }
+
+  display.setCursor(x - w, y);
+  display.print(buf);
 }
-
-
